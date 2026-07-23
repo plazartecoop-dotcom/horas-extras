@@ -106,8 +106,6 @@
   .tabs button.active{ border: 2px solid var(--amber); color: var(--amber); }
 
   .sector-dot{ width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:6px; }
-  .dot-mant{ background:#5b8dbf; } .dot-recep{ background:#e8a33d; } .dot-bols{ background:#4fae8c; }
-  .dot-prod{ background:#b79be8; } .dot-lab{ background:#d9634f; } .dot-admin{ background:#8fa5b3; }
 
   .modal-bg{
     position: fixed; inset:0; background: rgba(0,0,0,.6); display:flex; align-items:flex-start;
@@ -131,6 +129,42 @@
   .chip{ display:inline-flex; align-items:center; padding:5px 11px; border-radius:20px; border:1px solid var(--line);
          font-size:12px; cursor:pointer; margin:3px 4px 3px 0; }
   .chip.selected{ border-color: var(--amber); color: var(--amber); }
+  .chip-sector{ display:inline-flex; align-items:center; padding:5px 11px; border-radius:20px; border:1px solid var(--line);
+         font-size:12px; margin:3px 4px 3px 0; }
+
+  /* =========================================================
+     RESPONSIVE — CELULAR
+     ========================================================= */
+  @media (max-width: 640px){
+    .wrap{ padding: 14px 10px 70px; }
+    .card{ padding: 14px 12px; }
+    .brand .title{ font-size: 17px; }
+
+    /* Los formularios de varias columnas pasan a una sola columna apilada */
+    .row-flex{ flex-direction: column; }
+    .row-flex > *{ min-width: 100%; }
+
+    .carga-row{ grid-template-columns: 1fr !important; }
+    .carga-row .campo-simple, .carga-row .campo-noc, .carga-row .campo-horas{ grid-column: 1 / -1; }
+
+    .tipos{ flex-direction: column; }
+    .tipos button{ padding: 13px; font-size: 15px; }
+
+    input, select, textarea{ padding: 13px 12px; font-size: 16px; } /* 16px evita el zoom automático en iOS */
+    button{ padding: 12px 14px; font-size: 14px; }
+    button.primary, button.success{ font-size: 15px; }
+
+    .stat-grid{ grid-template-columns: repeat(2, 1fr); }
+    .stat-box .v{ font-size: 18px; }
+
+    table{ font-size: 12px; }
+    th, td{ padding: 6px 5px; }
+
+    .tabs{ gap: 4px; }
+    .tabs button{ min-width: 0; font-size: 12px; padding: 8px 4px; }
+
+    .modal{ padding: 16px; }
+  }
 </style>
 </head>
 <body>
@@ -284,6 +318,15 @@
       </div>
 
       <div class="card">
+        <h3>Sectores</h3>
+        <div id="lista-sectores" style="margin-bottom:12px;"></div>
+        <div class="row-flex">
+          <input id="nuevo-sector-nombre" placeholder="Nombre del nuevo sector">
+          <button class="primary" style="flex:none;" onclick="agregarSector()">+ Agregar sector</button>
+        </div>
+      </div>
+
+      <div class="card">
         <h3>Personal</h3>
         <div class="row-flex">
           <div>
@@ -292,14 +335,7 @@
           </div>
           <div>
             <label>Sector</label>
-            <select id="nuevo-op-sector">
-              <option>Mantenimiento</option>
-              <option>Recepción de M.P.</option>
-              <option>Bolseros</option>
-              <option>Producción</option>
-              <option>Laboratorio</option>
-              <option>Administrador</option>
-            </select>
+            <select id="nuevo-op-sector"></select>
           </div>
           <div>
             <label>Código (DNI)</label>
@@ -307,7 +343,10 @@
           </div>
         </div>
         <div style="height:10px;"></div>
-        <button class="primary" onclick="agregarOperario()">Agregar</button>
+        <div class="row-flex">
+          <button id="btn-guardar-operario" class="primary" onclick="agregarOperario()">Agregar</button>
+          <button id="btn-cancelar-edicion" class="hidden" onclick="cancelarEdicionOperario()">Cancelar</button>
+        </div>
         <div style="height:16px;"></div>
         <div id="lista-personal"></div>
       </div>
@@ -348,11 +387,15 @@ const ROOT = "horasExtras"; // todo vive bajo esta rama
 // Cambiar esta contraseña cuando quieras, es la única línea a tocar:
 const ADMIN_PASSWORD = "Balanceados2026";
 
-const SECTORES = ["Mantenimiento","Recepción de M.P.","Bolseros","Producción","Laboratorio","Administrador"];
-const SECTOR_DOT = {
-  "Mantenimiento":"dot-mant", "Recepción de M.P.":"dot-recep", "Bolseros":"dot-bols",
-  "Producción":"dot-prod", "Laboratorio":"dot-lab", "Administrador":"dot-admin"
-};
+let SECTORES = []; // se carga dinámicamente desde Firebase, ordenado alfabéticamente
+const PALETA_SECTORES = ["#5b8dbf","#e8a33d","#4fae8c","#b79be8","#d9634f","#8fa5b3","#e07bb0","#7bc4e0"];
+function colorSector(sector){
+  const idx = SECTORES.indexOf(sector);
+  return PALETA_SECTORES[(idx >= 0 ? idx : 0) % PALETA_SECTORES.length];
+}
+function dotSector(sector){
+  return `background:${colorSector(sector)};`;
+}
 
 let PERSONAL = {};     // id -> {apellidoNombre, sector, codigo}
 let PERIODOS = {};     // id -> {nombre, fechaInicio, fechaFin, cerrado}
@@ -370,6 +413,57 @@ db.ref(ROOT + "/personal").on("value", snap => {
   poblarSelectApellidos();
   renderListaPersonal();
 });
+
+db.ref(ROOT + "/sectores").once("value", snap => {
+  if (!snap.exists()) {
+    // Semilla inicial, solo la primera vez que se usa la app
+    const defaults = ["Mantenimiento","Recepción de M.P.","Bolseros","Producción","Laboratorio","Administrador"];
+    const obj = {};
+    defaults.forEach(nombre => { obj[db.ref(ROOT + "/sectores").push().key] = nombre; });
+    db.ref(ROOT + "/sectores").set(obj);
+  }
+});
+
+let SECTORES_IDS = {}; // id -> nombre, tal cual está en Firebase
+db.ref(ROOT + "/sectores").on("value", snap => {
+  SECTORES_IDS = snap.val() || {};
+  SECTORES = Object.values(SECTORES_IDS).sort((a,b) => a.localeCompare(b));
+  poblarSelectSector();
+  renderListaSectores();
+  if (!document.getElementById("vista-admin").classList.contains("hidden")) {
+    renderListado();
+    renderPendientes();
+  }
+});
+
+function poblarSelectSector(){
+  const sel = document.getElementById("nuevo-op-sector");
+  if (!sel) return;
+  const valorPrevio = sel.value;
+  sel.innerHTML = "";
+  SECTORES.forEach(s => {
+    const opt = document.createElement("option");
+    opt.value = s; opt.textContent = s;
+    sel.appendChild(opt);
+  });
+  if (SECTORES.includes(valorPrevio)) sel.value = valorPrevio;
+}
+
+function agregarSector(){
+  const input = document.getElementById("nuevo-sector-nombre");
+  const nombre = input.value.trim();
+  if (!nombre) return;
+  if (SECTORES.includes(nombre)) { alert("Ese sector ya existe."); return; }
+  db.ref(ROOT + "/sectores").push(nombre).then(() => { input.value = ""; });
+}
+
+function renderListaSectores(){
+  const cont = document.getElementById("lista-sectores");
+  if (!cont) return;
+  cont.innerHTML = SECTORES.map(s =>
+    `<span class="chip-sector"><span class="sector-dot" style="${dotSector(s)}"></span>${s}</span>`
+  ).join(" ");
+}
 
 db.ref(ROOT + "/periodos").on("value", snap => {
   PERIODOS = snap.val() || {};
@@ -726,7 +820,7 @@ function renderListado(){
       </tr>`;
     });
     html += `<div class="card">
-      <h3><span class="sector-dot ${SECTOR_DOT[sector]}"></span>${sector} · ${filas.length} operario(s) · ${sub.total} hs</h3>
+      <h3><span class="sector-dot" style="${dotSector(sector)}"></span>${sector} · ${filas.length} operario(s) · ${sub.total} hs</h3>
       <table>
         <thead><tr><th>Operario</th><th>100%</th><th>200%</th><th>Noct.</th><th>Total</th><th>Estado</th><th></th></tr></thead>
         <tbody>${filasHtml}</tbody>
@@ -835,37 +929,53 @@ function generarPDFDetalle(){
    ========================================================= */
 function renderPendientes(){
   const cont = document.getElementById("pendientes-contenido");
-  let html = "";
   let count = 0;
+  const pendientes = [];
 
   Object.entries(CARGAS).forEach(([periodoId, personas]) => {
     Object.entries(personas).forEach(([personalId, c]) => {
       if (c.estado !== "enviado") return;
-      count++;
       const p = PERSONAL[personalId];
       if (!p) return;
-      const periodo = PERIODOS[periodoId];
-      const tot = calcularTotales(c.items);
-      const items = Object.entries(c.items||{}).sort((a,b)=>(a[1].fecha||"").localeCompare(b[1].fecha||""));
-      let filas = "";
-      items.forEach(([iid,it]) => {
-        const fechaTxt = it.tipo === "nocturnas" && it.fechaHasta ?
-          fmtFecha(it.fecha) + " al " + fmtFecha(it.fechaHasta) : fmtFecha(it.fecha);
-        filas += `<tr><td>${fechaTxt}</td><td>${labelTipo(it.tipo)}</td><td>${it.horas} hs</td></tr>`;
-      });
-      html += `<div class="card">
-        <div class="row-flex" style="justify-content:space-between; align-items:center;">
-          <h3 style="margin:0;">${p.apellidoNombre} <span class="muted">· HS de ${periodo.nombre}</span></h3>
-          <span class="pill warn">Total: ${tot.total} hs</span>
-        </div>
-        <table style="margin:10px 0;"><tbody>${filas}</tbody></table>
-        <div class="row-flex">
-          <button onclick="abrirDetalle('${periodoId}','${personalId}')">Ver / editar detalle</button>
-          <button class="success" onclick="aprobarCarga('${periodoId}','${personalId}')">Aprobar</button>
-          <button class="danger" onclick="rechazarCarga('${periodoId}','${personalId}')">Rechazar</button>
-        </div>
-      </div>`;
+      pendientes.push({ periodoId, personalId, c, p });
     });
+  });
+
+  pendientes.sort((a,b) => {
+    const sA = SECTORES.indexOf(a.p.sector), sB = SECTORES.indexOf(b.p.sector);
+    if (sA !== sB) return sA - sB;
+    return a.p.apellidoNombre.localeCompare(b.p.apellidoNombre);
+  });
+
+  let html = "";
+  let sectorPrevio = null;
+  pendientes.forEach(({periodoId, personalId, c, p}) => {
+    count++;
+    const periodo = PERIODOS[periodoId];
+    const tot = calcularTotales(c.items);
+    const items = Object.entries(c.items||{}).sort((a,b)=>(a[1].fecha||"").localeCompare(b[1].fecha||""));
+    let filas = "";
+    items.forEach(([iid,it]) => {
+      const fechaTxt = it.tipo === "nocturnas" && it.fechaHasta ?
+        fmtFecha(it.fecha) + " al " + fmtFecha(it.fechaHasta) : fmtFecha(it.fecha);
+      filas += `<tr><td>${fechaTxt}</td><td>${labelTipo(it.tipo)}</td><td>${it.horas} hs</td></tr>`;
+    });
+    if (p.sector !== sectorPrevio) {
+      sectorPrevio = p.sector;
+      html += `<h3 style="margin: 18px 0 8px;"><span class="sector-dot" style="${dotSector(p.sector)}"></span>${p.sector}</h3>`;
+    }
+    html += `<div class="card">
+      <div class="row-flex" style="justify-content:space-between; align-items:center;">
+        <h3 style="margin:0;">${p.apellidoNombre} <span class="muted">· HS de ${periodo.nombre}</span></h3>
+        <span class="pill warn">Total: ${tot.total} hs</span>
+      </div>
+      <table style="margin:10px 0;"><tbody>${filas}</tbody></table>
+      <div class="row-flex">
+        <button onclick="abrirDetalle('${periodoId}','${personalId}')">Ver / editar detalle</button>
+        <button class="success" onclick="aprobarCarga('${periodoId}','${personalId}')">Aprobar</button>
+        <button class="danger" onclick="rechazarCarga('${periodoId}','${personalId}')">Rechazar</button>
+      </div>
+    </div>`;
   });
 
   cont.innerHTML = count ? html : '<p class="muted">No hay envíos pendientes de aprobación.</p>';
@@ -921,21 +1031,51 @@ function cerrarPeriodoActivo(){
 /* =========================================================
    CONFIGURACIÓN — Personal
    ========================================================= */
+let operarioEditandoId = null;
+
 function agregarOperario(){
   const nombre = document.getElementById("nuevo-op-nombre").value.trim();
   const sector = document.getElementById("nuevo-op-sector").value;
   const codigo = document.getElementById("nuevo-op-codigo").value.trim();
   if (!nombre || !codigo) { alert("Completá apellido y código."); return; }
-  db.ref(`${ROOT}/personal`).push({ apellidoNombre: nombre, sector, codigo }).then(() => {
-    document.getElementById("nuevo-op-nombre").value = "";
-    document.getElementById("nuevo-op-codigo").value = "";
-  });
+
+  if (operarioEditandoId) {
+    db.ref(`${ROOT}/personal/${operarioEditandoId}`).update({ apellidoNombre: nombre, sector, codigo }).then(() => {
+      cancelarEdicionOperario();
+    });
+  } else {
+    db.ref(`${ROOT}/personal`).push({ apellidoNombre: nombre, sector, codigo }).then(() => {
+      document.getElementById("nuevo-op-nombre").value = "";
+      document.getElementById("nuevo-op-codigo").value = "";
+    });
+  }
+}
+
+function editarOperario(id){
+  const p = PERSONAL[id];
+  if (!p) return;
+  operarioEditandoId = id;
+  document.getElementById("nuevo-op-nombre").value = p.apellidoNombre;
+  document.getElementById("nuevo-op-sector").value = p.sector;
+  document.getElementById("nuevo-op-codigo").value = p.codigo;
+  document.getElementById("btn-guardar-operario").textContent = "Guardar cambios";
+  document.getElementById("btn-cancelar-edicion").classList.remove("hidden");
+  document.getElementById("nuevo-op-nombre").scrollIntoView({behavior:"smooth", block:"center"});
+}
+
+function cancelarEdicionOperario(){
+  operarioEditandoId = null;
+  document.getElementById("nuevo-op-nombre").value = "";
+  document.getElementById("nuevo-op-codigo").value = "";
+  document.getElementById("btn-guardar-operario").textContent = "Agregar";
+  document.getElementById("btn-cancelar-edicion").classList.add("hidden");
 }
 
 function eliminarOperario(id){
   const p = PERSONAL[id];
   if (!confirm(`¿Eliminar a ${p.apellidoNombre} de la lista de personal?`)) return;
   db.ref(`${ROOT}/personal/${id}`).remove();
+  if (operarioEditandoId === id) cancelarEdicionOperario();
 }
 
 function renderListaPersonal(){
@@ -943,8 +1083,11 @@ function renderListaPersonal(){
   if (!cont) return;
   let html = '<table><thead><tr><th>Apellido</th><th>Sector</th><th>Código</th><th></th></tr></thead><tbody>';
   Object.entries(PERSONAL).sort((a,b)=>a[1].apellidoNombre.localeCompare(b[1].apellidoNombre)).forEach(([id,p]) => {
-    html += `<tr><td><span class="sector-dot ${SECTOR_DOT[p.sector]||''}"></span>${p.apellidoNombre}</td><td>${p.sector}</td><td>${p.codigo}</td>
-      <td style="text-align:right;"><button class="danger" onclick="eliminarOperario('${id}')">Eliminar</button></td></tr>`;
+    html += `<tr><td><span class="sector-dot" style="${dotSector(p.sector)}"></span>${p.apellidoNombre}</td><td>${p.sector}</td><td>${p.codigo}</td>
+      <td style="text-align:right;">
+        <button onclick="editarOperario('${id}')">Editar</button>
+        <button class="danger" onclick="eliminarOperario('${id}')">Eliminar</button>
+      </td></tr>`;
   });
   html += '</tbody></table>';
   cont.innerHTML = html;
@@ -979,7 +1122,22 @@ function renderStats(){
   // listas de chips (solo la primera vez o si cambió el personal/periodos)
   const contP = document.getElementById("cmp-lista-personas");
   if (contP.children.length === 0) {
-    Object.entries(PERSONAL).filter(([id,p])=>p.sector!=="Administrador").forEach(([id,p]) => {
+    const personalOrdenado = Object.entries(PERSONAL)
+      .filter(([id,p]) => p.sector !== "Administrador")
+      .sort((a,b) => {
+        const sA = SECTORES.indexOf(a[1].sector), sB = SECTORES.indexOf(b[1].sector);
+        if (sA !== sB) return sA - sB;
+        return a[1].apellidoNombre.localeCompare(b[1].apellidoNombre);
+      });
+    let sectorPrevio = null;
+    personalOrdenado.forEach(([id,p]) => {
+      if (p.sector !== sectorPrevio) {
+        sectorPrevio = p.sector;
+        const tit = document.createElement("div");
+        tit.style.cssText = "width:100%; font-size:11px; color:var(--muted); text-transform:uppercase; margin:8px 0 2px;";
+        tit.textContent = p.sector;
+        contP.appendChild(tit);
+      }
       const chip = document.createElement("span");
       chip.className = "chip" + (personasSel.has(id) ? " selected" : "");
       chip.textContent = p.apellidoNombre;
@@ -1019,9 +1177,17 @@ function renderStats(){
     datasets = SECTORES.map((s,i) => ({ label:s, data: porSector[s], backgroundColor: colores[i%colores.length] }));
   }
   else if (modoCmp === "personas") {
-    const activos = mostrarTodasPersonas
-      ? Object.keys(PERSONAL).filter(id => PERSONAL[id].sector !== "Administrador")
-      : [...personasSel];
+    const ordenPorSector = (ids) => ids.slice().sort((a,b) => {
+      const pa = PERSONAL[a], pb = PERSONAL[b];
+      const sA = SECTORES.indexOf(pa.sector), sB = SECTORES.indexOf(pb.sector);
+      if (sA !== sB) return sA - sB;
+      return pa.apellidoNombre.localeCompare(pb.apellidoNombre);
+    });
+    const activos = ordenPorSector(
+      mostrarTodasPersonas
+        ? Object.keys(PERSONAL).filter(id => PERSONAL[id].sector !== "Administrador")
+        : [...personasSel]
+    );
     labels = activos.map(id => PERSONAL[id]?.apellidoNombre || "?");
     const data = activos.map(id => {
       let sum = 0;
