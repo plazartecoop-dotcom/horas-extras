@@ -405,6 +405,7 @@ let CARGAS = {};        // periodoId -> personalId -> {estado, items:{}}
 
 let empleadoActualId = null;
 let filaCount = 0;
+let ultimaCargaEnviada = null;
 
 /* =========================================================
    CARGA INICIAL DESDE FIREBASE
@@ -562,32 +563,46 @@ function cargarVistaEmpleado(){
 
   db.ref(`${ROOT}/cargas/${PERIODO_ACTIVO_ID}/${empleadoActualId}`).once("value", snap => {
     const data = snap.val();
-    if (data && data.estado === "enviado") {
+    if (data && (data.estado === "enviado" || data.estado === "aprobado")) {
       mostrarResumenEnviado(data);
     } else {
-      document.getElementById("emp-form-carga").classList.remove("hidden");
-      document.getElementById("emp-filas").innerHTML = "";
-      filaCount = 0;
-      if (data && data.items) {
-        Object.entries(data.items).forEach(([iid, item]) => agregarFilaEmpleado(item, iid));
-      } else {
-        agregarFilaEmpleado();
-      }
+      mostrarFormularioCarga(data);
     }
   });
 }
 
+function mostrarFormularioCarga(data){
+  document.getElementById("emp-ya-enviado").classList.add("hidden");
+  document.getElementById("emp-form-carga").classList.remove("hidden");
+  document.getElementById("emp-filas").innerHTML = "";
+  filaCount = 0;
+  if (data && data.items) {
+    Object.entries(data.items).forEach(([iid, item]) => agregarFilaEmpleado(item, iid));
+    agregarFilaEmpleado(); // una fila vacía extra, lista para la hora nueva que viene a agregar
+  } else {
+    agregarFilaEmpleado();
+  }
+}
+
 function mostrarResumenEnviado(data){
+  document.getElementById("emp-form-carga").classList.add("hidden");
   document.getElementById("emp-ya-enviado").classList.remove("hidden");
+  ultimaCargaEnviada = data;
   const cont = document.getElementById("emp-resumen-enviado");
   const items = Object.values(data.items || {});
-  let html = '<table><thead><tr><th>Fecha</th><th>Tipo</th><th>Horas</th></tr></thead><tbody>';
+  const estadoTxt = data.estado === "aprobado"
+    ? '<span class="pill ok">Ya aprobada</span>'
+    : '<span class="pill warn">Pendiente de aprobación</span>';
+  let html = `<div style="margin-bottom:10px;">${estadoTxt}</div>`;
+  html += '<table><thead><tr><th>Fecha</th><th>Tipo</th><th>Horas</th></tr></thead><tbody>';
   items.forEach(it => {
     const fechaTxt = it.tipo === 'nocturnas' && it.fechaHasta ?
       fmtFecha(it.fecha) + ' al ' + fmtFecha(it.fechaHasta) : fmtFecha(it.fecha);
     html += `<tr><td>${fechaTxt}</td><td>${labelTipo(it.tipo)}</td><td>${it.horas} hs</td></tr>`;
   });
   html += '</tbody></table>';
+  html += `<div style="margin-top:14px;"><button class="primary" style="width:100%;" onclick="mostrarFormularioCarga(ultimaCargaEnviada)">+ Agregar más horas</button></div>`;
+  html += `<div class="muted center" style="margin-top:8px;">Si agregás algo nuevo, tu planilla vuelve a quedar pendiente de aprobación.</div>`;
   cont.innerHTML = html;
 }
 
