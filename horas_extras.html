@@ -1,0 +1,1081 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Horas Extras — Fábrica de Alimentos Balanceados</title>
+
+<!-- Firebase (mismo proyecto que planilla de viajes / stock) -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+<!-- jsPDF para generar el PDF de Finanzas -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+
+  :root{
+    --bg: #101a23;
+    --panel: #17232e;
+    --panel-2: #1e2c38;
+    --line: #2b3b48;
+    --text: #e9eef1;
+    --muted: #8fa5b3;
+    --amber: #e8a33d;
+    --amber-dim: #4a3a1e;
+    --green: #4fae8c;
+    --green-dim: #17352c;
+    --red: #d9634f;
+    --red-dim: #3a1f1c;
+    --blue: #5b8dbf;
+  }
+  *{ box-sizing: border-box; }
+  body{
+    margin:0; background: var(--bg); color: var(--text);
+    font-family: 'Inter', sans-serif;
+  }
+  .wrap{ max-width: 980px; margin: 0 auto; padding: 24px 18px 80px; }
+  h1,h2,h3{ font-weight: 700; margin: 0; }
+  .brand{
+    text-align:center; margin-bottom: 26px;
+  }
+  .brand .sub{ font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1.4px; }
+  .brand .title{ font-size: 20px; margin-top: 4px; }
+  .brand .periodo{ font-size: 13px; color: var(--amber); margin-top: 4px; font-family: 'JetBrains Mono', monospace; }
+
+  .card{
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 18px 20px; margin-bottom: 16px;
+  }
+  .card h3{ font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 14px; }
+
+  label{ font-size: 12px; color: var(--muted); display:block; margin-bottom: 4px; }
+  input, select, textarea{
+    width: 100%; background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+    padding: 9px 10px; border-radius: 6px; font-size: 14px; font-family: inherit;
+  }
+  input:focus, select:focus, textarea:focus{ outline: 1px solid var(--amber); }
+
+  button{
+    background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+    padding: 9px 14px; border-radius: 6px; font-size: 13px; cursor: pointer; font-family: inherit;
+  }
+  button:hover{ border-color: var(--amber); }
+  button.primary{ background: var(--amber); color: #201406; border: none; font-weight: 600; }
+  button.success{ background: var(--green); color: #062017; border: none; font-weight: 600; }
+  button.danger{ background: transparent; color: var(--red); border: 1px solid var(--red); }
+  button.link{ background: none; border: none; color: var(--amber); text-decoration: underline; padding: 4px; }
+  button:disabled{ opacity: .4; cursor: not-allowed; }
+
+  .row-flex{ display:flex; gap:10px; flex-wrap: wrap; }
+  .row-flex > *{ flex: 1; min-width: 120px; }
+
+  table{ width:100%; border-collapse: collapse; font-family: 'JetBrains Mono', monospace; font-size: 13px; }
+  th{ text-align:left; padding: 7px 8px; font-family:'Inter',sans-serif; font-size: 11px; text-transform: uppercase;
+      color: var(--muted); font-weight:600; border-bottom: 1px solid var(--line); }
+  td{ padding: 8px; border-bottom: 1px solid var(--line); }
+  tfoot td{ font-weight: 700; border-top: 2px solid var(--line); border-bottom: none; }
+
+  .pill{ display:inline-block; padding: 2px 9px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+  .pill.b-100{ background:#16324a; color: var(--blue); }
+  .pill.b-200{ background: var(--amber-dim); color: var(--amber); }
+  .pill.b-noc{ background:#2e2145; color:#b79be8; }
+  .pill.ok{ background: var(--green-dim); color: var(--green); }
+  .pill.warn{ background: var(--amber-dim); color: var(--amber); }
+  .pill.bad{ background: var(--red-dim); color: var(--red); }
+
+  .carga-row{
+    display:grid; grid-template-columns: 1fr 1fr 1fr auto; gap:8px; align-items:end;
+    background: var(--panel-2); padding: 12px; border-radius: 8px; margin-bottom: 10px;
+  }
+  .carga-row.noc{ grid-template-columns: 1fr 1fr 1fr auto; }
+  .tipos{ display:flex; gap:6px; }
+  .tipos button{ flex:1; padding: 7px; font-size: 12px; }
+  .tipos button.active{ border: 2px solid var(--amber); color: var(--amber); }
+
+  .obs-wrap{ margin-top: 8px; }
+  .obs-count{ font-size: 11px; color: var(--muted); text-align: right; }
+
+  .hidden{ display:none !important; }
+  .center{ text-align: center; }
+  .muted{ color: var(--muted); font-size: 12px; }
+
+  .tabs{ display:flex; gap:6px; margin-bottom: 18px; flex-wrap: wrap; }
+  .tabs button{ flex:1; min-width: 110px; }
+  .tabs button.active{ border: 2px solid var(--amber); color: var(--amber); }
+
+  .sector-dot{ width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:6px; }
+  .dot-mant{ background:#5b8dbf; } .dot-recep{ background:#e8a33d; } .dot-bols{ background:#4fae8c; }
+  .dot-prod{ background:#b79be8; } .dot-lab{ background:#d9634f; } .dot-admin{ background:#8fa5b3; }
+
+  .modal-bg{
+    position: fixed; inset:0; background: rgba(0,0,0,.6); display:flex; align-items:flex-start;
+    justify-content:center; padding: 40px 16px; overflow-y:auto; z-index: 50;
+  }
+  .modal{ background: var(--panel); border:1px solid var(--line); border-radius: 10px; padding: 22px; max-width: 560px; width:100%; }
+
+  #print-area{ display:none; }
+  @media print{
+    body *{ visibility: hidden; }
+    #print-area, #print-area *{ visibility: visible; }
+    #print-area{ display:block; position:absolute; top:0; left:0; width:100%; padding: 20px; color:#000; background:#fff; }
+    #print-area table td, #print-area table th{ color:#000; border-color:#999; }
+  }
+
+  .stat-grid{ display:grid; grid-template-columns: repeat(4,1fr); gap:10px; margin-bottom: 16px; }
+  .stat-box{ background: var(--panel-2); border-radius: 8px; padding: 12px; }
+  .stat-box .l{ font-size:11px; color:var(--muted); text-transform: uppercase; }
+  .stat-box .v{ font-family:'JetBrains Mono',monospace; font-size:20px; font-weight:700; margin-top:4px; }
+
+  .chip{ display:inline-flex; align-items:center; padding:5px 11px; border-radius:20px; border:1px solid var(--line);
+         font-size:12px; cursor:pointer; margin:3px 4px 3px 0; }
+  .chip.selected{ border-color: var(--amber); color: var(--amber); }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <div class="brand">
+    <div class="sub">Fábrica de Alimentos Balanceados</div>
+    <div class="title">Planilla de Horas Extras</div>
+    <div class="periodo" id="periodo-label">Cargando período...</div>
+  </div>
+
+  <!-- ===================== PANTALLA INICIAL ===================== -->
+  <div id="pantalla-inicio" class="card center">
+    <h3>¿Quién sos?</h3>
+    <div class="row-flex">
+      <button class="primary" onclick="mostrarLoginEmpleado()">Soy empleado</button>
+      <button onclick="mostrarLoginAdmin()">Soy administrador</button>
+    </div>
+  </div>
+
+  <!-- ===================== LOGIN EMPLEADO ===================== -->
+  <div id="login-empleado" class="card hidden">
+    <h3>Ingresar</h3>
+    <label>Tu apellido</label>
+    <select id="emp-apellido"></select>
+    <div style="height:10px;"></div>
+    <label>Código personal (últimos 4 dígitos de tu DNI)</label>
+    <input id="emp-codigo" type="password" maxlength="4" inputmode="numeric">
+    <div style="height:14px;"></div>
+    <div class="row-flex">
+      <button onclick="volverInicio()">Volver</button>
+      <button class="primary" onclick="ingresarEmpleado()">Ingresar</button>
+    </div>
+    <div id="emp-login-error" class="muted" style="color:var(--red); margin-top:8px;"></div>
+  </div>
+
+  <!-- ===================== VISTA EMPLEADO ===================== -->
+  <div id="vista-empleado" class="card hidden">
+    <h3 id="emp-saludo">Hola</h3>
+
+    <div id="emp-sin-periodo" class="muted hidden">No hay ningún período abierto para carga en este momento. Consultá con tu encargado.</div>
+
+    <div id="emp-ya-enviado" class="hidden">
+      <p class="muted">Ya enviaste tu planilla de este período. Quedó registrada así:</p>
+      <div id="emp-resumen-enviado"></div>
+    </div>
+
+    <div id="emp-form-carga" class="hidden">
+      <div id="emp-filas"></div>
+      <button onclick="agregarFilaEmpleado()">+ Agregar carga</button>
+      <div style="height:16px;"></div>
+      <button class="primary" style="width:100%;" onclick="enviarPlanillaEmpleado()">Enviar para revisión</button>
+      <div class="muted center" style="margin-top:8px;">Una vez enviada, no vas a poder modificarla. Podés cargar de a poco y enviar recién cuando termines el período.</div>
+    </div>
+
+    <div style="margin-top:16px; text-align:center;">
+      <button class="link" onclick="salirEmpleado()">Salir</button>
+    </div>
+  </div>
+
+  <!-- ===================== LOGIN ADMIN ===================== -->
+  <div id="login-admin" class="card hidden">
+    <h3>Acceso administrador</h3>
+    <label>Contraseña</label>
+    <input id="admin-pass" type="password">
+    <div style="height:14px;"></div>
+    <div class="row-flex">
+      <button onclick="volverInicio()">Volver</button>
+      <button class="primary" onclick="ingresarAdmin()">Ingresar</button>
+    </div>
+    <div id="admin-login-error" class="muted" style="color:var(--red); margin-top:8px;"></div>
+  </div>
+
+  <!-- ===================== VISTA ADMIN ===================== -->
+  <div id="vista-admin" class="card hidden">
+    <div class="tabs">
+      <button id="tab-btn-listado" class="active" onclick="cambiarTab('listado')">Listado</button>
+      <button id="tab-btn-pendientes" onclick="cambiarTab('pendientes')">Pendientes</button>
+      <button id="tab-btn-stats" onclick="cambiarTab('stats')">Estadísticas</button>
+      <button id="tab-btn-config" onclick="cambiarTab('config')">Configuración</button>
+    </div>
+
+    <!-- LISTADO -->
+    <div id="tab-listado">
+      <div class="row-flex" style="margin-bottom:14px;">
+        <div>
+          <label>Período</label>
+          <select id="listado-periodo" onchange="renderListado()"></select>
+        </div>
+      </div>
+      <div id="listado-contenido"></div>
+    </div>
+
+    <!-- PENDIENTES -->
+    <div id="tab-pendientes" class="hidden">
+      <div id="pendientes-contenido"></div>
+    </div>
+
+    <!-- ESTADISTICAS -->
+    <div id="tab-stats" class="hidden">
+      <div class="tabs" style="margin-bottom:10px;">
+        <button id="cmp-btn-sectores" class="active" onclick="setModoCmp('sectores')">Sectores</button>
+        <button id="cmp-btn-personas" onclick="setModoCmp('personas')">Personas</button>
+        <button id="cmp-btn-periodos" onclick="setModoCmp('periodos')">Períodos</button>
+      </div>
+      <div id="cmp-panel-personas" class="hidden card">
+        <div class="row-flex" style="margin-bottom:8px;">
+          <button id="cmp-btn-todos" class="submode active" onclick="setPersonasModo(true)">Todos</button>
+          <button id="cmp-btn-elegir" class="submode" onclick="setPersonasModo(false)">Elegir personas</button>
+        </div>
+        <div id="cmp-lista-personas"></div>
+      </div>
+      <div id="cmp-panel-periodos" class="hidden card">
+        <div class="muted" style="margin-bottom:8px;">Elegí uno o varios períodos</div>
+        <div id="cmp-lista-periodos"></div>
+      </div>
+      <div class="row-flex" style="justify-content:flex-end; margin-bottom:10px;">
+        <button style="flex:none;" onclick="window.print()">Imprimir</button>
+      </div>
+      <div class="stat-grid" id="stat-cards"></div>
+      <div style="position:relative; width:100%; height:280px;">
+        <canvas id="chartCmp"></canvas>
+      </div>
+    </div>
+
+    <!-- CONFIGURACION -->
+    <div id="tab-config" class="hidden">
+      <div class="card">
+        <h3>Período de carga</h3>
+        <div id="periodo-actual-info" class="muted" style="margin-bottom:10px;"></div>
+        <button class="danger" id="btn-cerrar-periodo" onclick="cerrarPeriodoActivo()">Cerrar período activo</button>
+        <div style="height:16px; border-top:1px solid var(--line); margin-top:16px;"></div>
+        <h3 style="margin-top:14px;">Abrir nuevo período</h3>
+        <div class="row-flex">
+          <div>
+            <label>Nombre (mes en que arranca)</label>
+            <input id="nuevo-periodo-nombre" placeholder="Ej: Agosto">
+          </div>
+          <div>
+            <label>Fecha inicio (aprox. 20)</label>
+            <input id="nuevo-periodo-inicio" type="date">
+          </div>
+          <div>
+            <label>Fecha fin (aprox. 20 sig.)</label>
+            <input id="nuevo-periodo-fin" type="date">
+          </div>
+        </div>
+        <div style="height:10px;"></div>
+        <button class="primary" onclick="abrirNuevoPeriodo()">Abrir período "HS de [nombre]"</button>
+      </div>
+
+      <div class="card">
+        <h3>Personal</h3>
+        <div class="row-flex">
+          <div>
+            <label>Apellido y nombre</label>
+            <input id="nuevo-op-nombre">
+          </div>
+          <div>
+            <label>Sector</label>
+            <select id="nuevo-op-sector">
+              <option>Mantenimiento</option>
+              <option>Recepción de M.P.</option>
+              <option>Bolseros</option>
+              <option>Producción</option>
+              <option>Laboratorio</option>
+              <option>Administrador</option>
+            </select>
+          </div>
+          <div>
+            <label>Código (DNI)</label>
+            <input id="nuevo-op-codigo" maxlength="4" inputmode="numeric">
+          </div>
+        </div>
+        <div style="height:10px;"></div>
+        <button class="primary" onclick="agregarOperario()">Agregar</button>
+        <div style="height:16px;"></div>
+        <div id="lista-personal"></div>
+      </div>
+    </div>
+
+    <div style="margin-top:16px; text-align:center;">
+      <button class="link" onclick="salirAdmin()">Salir</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- MODAL DETALLE -->
+<div id="modal-detalle" class="modal-bg hidden" onclick="if(event.target===this) cerrarModal()">
+  <div class="modal">
+    <div id="modal-detalle-contenido"></div>
+    <div class="row-flex" style="margin-top:16px;">
+      <button onclick="cerrarModal()">Cerrar</button>
+      <button onclick="imprimirDetalle()">Imprimir</button>
+      <button class="primary" onclick="generarPDFDetalle()">Generar PDF</button>
+    </div>
+  </div>
+</div>
+
+<div id="print-area"></div>
+
+<script>
+/* =========================================================
+   CONFIGURACIÓN
+   ========================================================= */
+const firebaseConfig = {
+  databaseURL: "https://planilla-viajes-2026-default-rtdb.firebaseio.com"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+const ROOT = "horasExtras"; // todo vive bajo esta rama
+
+// Cambiar esta contraseña cuando quieras, es la única línea a tocar:
+const ADMIN_PASSWORD = "Balanceados2026";
+
+const SECTORES = ["Mantenimiento","Recepción de M.P.","Bolseros","Producción","Laboratorio","Administrador"];
+const SECTOR_DOT = {
+  "Mantenimiento":"dot-mant", "Recepción de M.P.":"dot-recep", "Bolseros":"dot-bols",
+  "Producción":"dot-prod", "Laboratorio":"dot-lab", "Administrador":"dot-admin"
+};
+
+let PERSONAL = {};     // id -> {apellidoNombre, sector, codigo}
+let PERIODOS = {};     // id -> {nombre, fechaInicio, fechaFin, cerrado}
+let PERIODO_ACTIVO_ID = null;
+let CARGAS = {};        // periodoId -> personalId -> {estado, items:{}}
+
+let empleadoActualId = null;
+let filaCount = 0;
+
+/* =========================================================
+   CARGA INICIAL DESDE FIREBASE
+   ========================================================= */
+db.ref(ROOT + "/personal").on("value", snap => {
+  PERSONAL = snap.val() || {};
+  poblarSelectApellidos();
+  renderListaPersonal();
+});
+
+db.ref(ROOT + "/periodos").on("value", snap => {
+  PERIODOS = snap.val() || {};
+  actualizarPeriodoActivo();
+  poblarSelectListadoPeriodo();
+  renderPeriodoActualInfo();
+});
+
+db.ref(ROOT + "/config/periodoActivoId").on("value", snap => {
+  PERIODO_ACTIVO_ID = snap.val() || null;
+  actualizarPeriodoActivo();
+  renderPeriodoActualInfo();
+});
+
+db.ref(ROOT + "/cargas").on("value", snap => {
+  CARGAS = snap.val() || {};
+  // refrescar vistas que dependan de esto si están abiertas
+  if (!document.getElementById("vista-admin").classList.contains("hidden")) {
+    renderListado();
+    renderPendientes();
+  }
+});
+
+function actualizarPeriodoActivo(){
+  const p = PERIODOS[PERIODO_ACTIVO_ID];
+  const label = document.getElementById("periodo-label");
+  if (p) {
+    label.textContent = "HS de " + p.nombre + " · " + fmtFecha(p.fechaInicio) + " al " + fmtFecha(p.fechaFin);
+  } else {
+    label.textContent = "Sin período activo";
+  }
+}
+
+function fmtFecha(iso){
+  if (!iso) return "";
+  const [y,m,d] = iso.split("-");
+  return d + "/" + m;
+}
+
+/* =========================================================
+   NAVEGACIÓN GENERAL
+   ========================================================= */
+function ocultarTodo(){
+  ["pantalla-inicio","login-empleado","vista-empleado","login-admin","vista-admin"]
+    .forEach(id => document.getElementById(id).classList.add("hidden"));
+}
+function volverInicio(){ ocultarTodo(); document.getElementById("pantalla-inicio").classList.remove("hidden"); }
+function mostrarLoginEmpleado(){ ocultarTodo(); document.getElementById("login-empleado").classList.remove("hidden"); }
+function mostrarLoginAdmin(){ ocultarTodo(); document.getElementById("login-admin").classList.remove("hidden"); }
+function salirEmpleado(){ empleadoActualId = null; volverInicio(); }
+function salirAdmin(){ volverInicio(); }
+
+/* =========================================================
+   LOGIN EMPLEADO
+   ========================================================= */
+function poblarSelectApellidos(){
+  const sel = document.getElementById("emp-apellido");
+  sel.innerHTML = "";
+  Object.entries(PERSONAL)
+    .filter(([id,p]) => p.sector !== "Administrador")
+    .sort((a,b) => a[1].apellidoNombre.localeCompare(b[1].apellidoNombre))
+    .forEach(([id,p]) => {
+      const opt = document.createElement("option");
+      opt.value = id; opt.textContent = p.apellidoNombre;
+      sel.appendChild(opt);
+    });
+}
+
+function ingresarEmpleado(){
+  const id = document.getElementById("emp-apellido").value;
+  const cod = document.getElementById("emp-codigo").value.trim();
+  const err = document.getElementById("emp-login-error");
+  const p = PERSONAL[id];
+  if (!p || p.codigo !== cod) {
+    err.textContent = "Código incorrecto. Probá de nuevo.";
+    return;
+  }
+  err.textContent = "";
+  empleadoActualId = id;
+  ocultarTodo();
+  document.getElementById("vista-empleado").classList.remove("hidden");
+  document.getElementById("emp-saludo").textContent = "Hola, " + p.apellidoNombre;
+  cargarVistaEmpleado();
+}
+
+function cargarVistaEmpleado(){
+  document.getElementById("emp-sin-periodo").classList.add("hidden");
+  document.getElementById("emp-ya-enviado").classList.add("hidden");
+  document.getElementById("emp-form-carga").classList.add("hidden");
+
+  if (!PERIODO_ACTIVO_ID || !PERIODOS[PERIODO_ACTIVO_ID]) {
+    document.getElementById("emp-sin-periodo").classList.remove("hidden");
+    return;
+  }
+
+  db.ref(`${ROOT}/cargas/${PERIODO_ACTIVO_ID}/${empleadoActualId}`).once("value", snap => {
+    const data = snap.val();
+    if (data && data.estado === "enviado") {
+      mostrarResumenEnviado(data);
+    } else {
+      document.getElementById("emp-form-carga").classList.remove("hidden");
+      document.getElementById("emp-filas").innerHTML = "";
+      filaCount = 0;
+      if (data && data.items) {
+        Object.entries(data.items).forEach(([iid, item]) => agregarFilaEmpleado(item, iid));
+      } else {
+        agregarFilaEmpleado();
+      }
+    }
+  });
+}
+
+function mostrarResumenEnviado(data){
+  document.getElementById("emp-ya-enviado").classList.remove("hidden");
+  const cont = document.getElementById("emp-resumen-enviado");
+  const items = Object.values(data.items || {});
+  let html = '<table><thead><tr><th>Fecha</th><th>Tipo</th><th>Horas</th></tr></thead><tbody>';
+  items.forEach(it => {
+    const fechaTxt = it.tipo === 'nocturnas' && it.fechaHasta ?
+      fmtFecha(it.fecha) + ' al ' + fmtFecha(it.fechaHasta) : fmtFecha(it.fecha);
+    html += `<tr><td>${fechaTxt}</td><td>${labelTipo(it.tipo)}</td><td>${it.horas} hs</td></tr>`;
+  });
+  html += '</tbody></table>';
+  cont.innerHTML = html;
+}
+
+function labelTipo(t){
+  if (t === "100") return "100%";
+  if (t === "200") return "200%";
+  return "Nocturnas";
+}
+
+/* =========================================================
+   FORMULARIO DE CARGA (EMPLEADO)
+   ========================================================= */
+function agregarFilaEmpleado(itemExistente, itemId){
+  filaCount++;
+  const id = itemId || ("nueva_" + filaCount);
+  const tipo = (itemExistente && itemExistente.tipo) || "100";
+  const div = document.createElement("div");
+  div.className = "carga-row";
+  div.id = "fila-" + id;
+  div.dataset.itemId = id;
+
+  div.innerHTML = `
+    <div style="grid-column: 1 / -1;">
+      <div class="tipos">
+        <button type="button" data-tipo="100" onclick="cambiarTipoFila('${id}','100')">100%</button>
+        <button type="button" data-tipo="200" onclick="cambiarTipoFila('${id}','200')">200%</button>
+        <button type="button" data-tipo="nocturnas" onclick="cambiarTipoFila('${id}','nocturnas')">Nocturnas</button>
+      </div>
+    </div>
+    <div class="campo-simple">
+      <label>Fecha</label>
+      <input type="date" class="in-fecha" value="${(itemExistente && itemExistente.fecha) || ''}">
+    </div>
+    <div class="campo-noc hidden">
+      <label>Desde</label>
+      <input type="date" class="in-fecha-desde" value="${(itemExistente && itemExistente.fecha) || ''}">
+    </div>
+    <div class="campo-noc hidden">
+      <label>Hasta</label>
+      <input type="date" class="in-fecha-hasta" value="${(itemExistente && itemExistente.fechaHasta) || ''}">
+    </div>
+    <div class="campo-horas">
+      <label>Horas</label>
+      <input type="number" min="1" max="14" class="in-horas" value="${(itemExistente && itemExistente.horas) || ''}">
+    </div>
+    <div>
+      <button type="button" onclick="quitarFilaEmpleado('${id}')">✕</button>
+    </div>
+    <div style="grid-column: 1 / -1;" class="obs-wrap">
+      <label>Observación (opcional)</label>
+      <input type="text" class="in-obs" maxlength="60" value="${(itemExistente && itemExistente.obs) || ''}"
+             oninput="actualizarContadorObs('${id}')">
+      <div class="obs-count" id="obs-count-${id}">60 caracteres disponibles</div>
+    </div>
+  `;
+  document.getElementById("emp-filas").appendChild(div);
+  cambiarTipoFila(id, tipo);
+  actualizarContadorObs(id);
+}
+
+function cambiarTipoFila(id, tipo){
+  const fila = document.getElementById("fila-" + id);
+  fila.dataset.tipo = tipo;
+  fila.querySelectorAll(".tipos button").forEach(b => b.classList.toggle("active", b.dataset.tipo === tipo));
+  const esNoc = tipo === "nocturnas";
+  fila.querySelector(".campo-simple").classList.toggle("hidden", esNoc);
+  fila.querySelectorAll(".campo-noc").forEach(el => el.classList.toggle("hidden", !esNoc));
+}
+
+function quitarFilaEmpleado(id){
+  const fila = document.getElementById("fila-" + id);
+  if (fila) fila.remove();
+}
+
+function actualizarContadorObs(id){
+  const input = document.querySelector(`#fila-${id} .in-obs`);
+  const count = document.getElementById("obs-count-" + id);
+  const restantes = 60 - input.value.length;
+  count.textContent = restantes + " caracteres disponibles";
+}
+
+function leerFilasEmpleado(){
+  const filas = document.querySelectorAll("#emp-filas .carga-row");
+  const items = {};
+  filas.forEach(fila => {
+    const tipo = fila.dataset.tipo;
+    const obs = fila.querySelector(".in-obs").value.trim();
+    if (tipo === "nocturnas") {
+      const desde = fila.querySelector(".in-fecha-desde").value;
+      const hasta = fila.querySelector(".in-fecha-hasta").value;
+      if (!desde || !hasta) return;
+      const horas = contarNoches(desde, hasta);
+      items[fila.dataset.itemId] = { tipo, fecha: desde, fechaHasta: hasta, horas, obs };
+    } else {
+      const fecha = fila.querySelector(".in-fecha").value;
+      const horas = parseFloat(fila.querySelector(".in-horas").value);
+      if (!fecha || !horas) return;
+      items[fila.dataset.itemId] = { tipo, fecha, horas, obs };
+    }
+  });
+  return items;
+}
+
+function contarNoches(desdeISO, hastaISO){
+  const d1 = new Date(desdeISO + "T00:00:00");
+  const d2 = new Date(hastaISO + "T00:00:00");
+  const dias = Math.round((d2 - d1) / 86400000) + 1; // inclusive
+  return Math.max(0, dias);
+}
+
+function enviarPlanillaEmpleado(){
+  const items = leerFilasEmpleado();
+  if (Object.keys(items).length === 0) {
+    alert("Cargá al menos una hora extra antes de enviar.");
+    return;
+  }
+  if (!confirm("¿Confirmás el envío? Una vez enviada no vas a poder modificarla.")) return;
+
+  const ref = db.ref(`${ROOT}/cargas/${PERIODO_ACTIVO_ID}/${empleadoActualId}`);
+  ref.set({
+    estado: "enviado",
+    enviadoEn: Date.now(),
+    items: items
+  }).then(() => {
+    cargarVistaEmpleado();
+  });
+}
+
+// Autoguardado de borrador cada vez que cambia algo (simple: al salir del campo)
+document.addEventListener("blur", (e) => {
+  if (e.target.closest && e.target.closest("#emp-filas") && empleadoActualId && PERIODO_ACTIVO_ID) {
+    const items = leerFilasEmpleado();
+    db.ref(`${ROOT}/cargas/${PERIODO_ACTIVO_ID}/${empleadoActualId}`).update({
+      estado: "borrador",
+      items: items
+    });
+  }
+}, true);
+
+/* =========================================================
+   LOGIN ADMIN
+   ========================================================= */
+function ingresarAdmin(){
+  const pass = document.getElementById("admin-pass").value;
+  if (pass !== ADMIN_PASSWORD) {
+    document.getElementById("admin-login-error").textContent = "Contraseña incorrecta.";
+    return;
+  }
+  document.getElementById("admin-login-error").textContent = "";
+  ocultarTodo();
+  document.getElementById("vista-admin").classList.remove("hidden");
+  poblarSelectListadoPeriodo();
+  renderListado();
+  renderPendientes();
+  renderPeriodoActualInfo();
+  renderListaPersonal();
+}
+
+/* =========================================================
+   TABS ADMIN
+   ========================================================= */
+function cambiarTab(nombre){
+  ["listado","pendientes","stats","config"].forEach(t => {
+    document.getElementById("tab-" + t).classList.toggle("hidden", t !== nombre);
+    document.getElementById("tab-btn-" + t).classList.toggle("active", t === nombre);
+  });
+  if (nombre === "stats") renderStats();
+}
+
+/* =========================================================
+   LISTADO (agrupado por sector)
+   ========================================================= */
+function poblarSelectListadoPeriodo(){
+  const sel = document.getElementById("listado-periodo");
+  const valorPrevio = sel.value;
+  sel.innerHTML = "";
+  Object.entries(PERIODOS)
+    .sort((a,b) => (b[1].fechaInicio||"").localeCompare(a[1].fechaInicio||""))
+    .forEach(([id,p]) => {
+      const opt = document.createElement("option");
+      opt.value = id; opt.textContent = "HS de " + p.nombre + (p.cerrado ? " (cerrado)" : " (activo)");
+      sel.appendChild(opt);
+    });
+  if (valorPrevio && PERIODOS[valorPrevio]) sel.value = valorPrevio;
+  else if (PERIODO_ACTIVO_ID) sel.value = PERIODO_ACTIVO_ID;
+}
+
+function calcularTotales(items){
+  let h100=0,h200=0,hnoc=0;
+  Object.values(items||{}).forEach(it => {
+    if (it.tipo === "100") h100 += Number(it.horas)||0;
+    else if (it.tipo === "200") h200 += Number(it.horas)||0;
+    else hnoc += Number(it.horas)||0;
+  });
+  return {h100,h200,hnoc,total:h100+h200+hnoc};
+}
+
+function renderListado(){
+  const periodoId = document.getElementById("listado-periodo").value;
+  const cont = document.getElementById("listado-contenido");
+  if (!periodoId) { cont.innerHTML = '<p class="muted">No hay períodos cargados todavía.</p>'; return; }
+
+  const cargasPeriodo = CARGAS[periodoId] || {};
+  const porSector = {};
+  SECTORES.forEach(s => porSector[s] = []);
+
+  Object.entries(PERSONAL).forEach(([id,p]) => {
+    if (p.sector === "Administrador") return;
+    const c = cargasPeriodo[id];
+    if (!c || (c.estado !== "aprobado" && c.estado !== "enviado")) return; // solo mostramos lo enviado/aprobado
+    const tot = calcularTotales(c.items);
+    porSector[p.sector] = porSector[p.sector] || [];
+    porSector[p.sector].push({ id, nombre: p.apellidoNombre, tot, estado: c.estado });
+  });
+
+  let html = "";
+  SECTORES.forEach(sector => {
+    const filas = porSector[sector];
+    if (!filas || filas.length === 0) return;
+    let sub = {h100:0,h200:0,hnoc:0,total:0};
+    let filasHtml = "";
+    filas.sort((a,b)=>a.nombre.localeCompare(b.nombre)).forEach(f => {
+      sub.h100 += f.tot.h100; sub.h200 += f.tot.h200; sub.hnoc += f.tot.hnoc; sub.total += f.tot.total;
+      const estadoPill = f.estado === "aprobado" ? '<span class="pill ok">Aprobado</span>' : '<span class="pill warn">Pendiente</span>';
+      filasHtml += `<tr>
+        <td>${f.nombre}</td>
+        <td>${f.tot.h100||''}</td><td>${f.tot.h200||''}</td><td>${f.tot.hnoc||''}</td>
+        <td><b>${f.tot.total}</b></td>
+        <td>${estadoPill}</td>
+        <td style="text-align:right;"><button onclick="abrirDetalle('${periodoId}','${f.id}')">Detalle</button></td>
+      </tr>`;
+    });
+    html += `<div class="card">
+      <h3><span class="sector-dot ${SECTOR_DOT[sector]}"></span>${sector} · ${filas.length} operario(s) · ${sub.total} hs</h3>
+      <table>
+        <thead><tr><th>Operario</th><th>100%</th><th>200%</th><th>Noct.</th><th>Total</th><th>Estado</th><th></th></tr></thead>
+        <tbody>${filasHtml}</tbody>
+        <tfoot><tr><td>Subtotal</td><td>${sub.h100}</td><td>${sub.h200}</td><td>${sub.hnoc}</td><td>${sub.total}</td><td colspan="2"></td></tr></tfoot>
+      </table>
+    </div>`;
+  });
+
+  cont.innerHTML = html || '<p class="muted">Todavía no hay cargas enviadas en este período.</p>';
+}
+
+/* =========================================================
+   DETALLE (modal) + IMPRESION + PDF
+   ========================================================= */
+let detalleActual = null;
+
+function abrirDetalle(periodoId, personalId){
+  const p = PERSONAL[personalId];
+  const c = (CARGAS[periodoId] || {})[personalId];
+  if (!c) return;
+  const tot = calcularTotales(c.items);
+  const periodo = PERIODOS[periodoId];
+
+  detalleActual = { periodoId, personalId, p, c, tot, periodo };
+
+  const items = Object.values(c.items || {}).sort((a,b) => (a.fecha||"").localeCompare(b.fecha||""));
+  let filas = "";
+  items.forEach(it => {
+    const fechaTxt = it.tipo === "nocturnas" && it.fechaHasta ?
+      fmtFecha(it.fecha) + " al " + fmtFecha(it.fechaHasta) : fmtFecha(it.fecha);
+    filas += `<tr><td>${fechaTxt}</td><td>${labelTipo(it.tipo)}</td><td>${it.horas} hs</td><td class="muted">${it.obs||''}</td></tr>`;
+  });
+
+  document.getElementById("modal-detalle-contenido").innerHTML = `
+    <div class="muted" style="text-transform:uppercase; font-size:11px;">Fábrica de Alimentos Balanceados</div>
+    <h3 style="margin:4px 0;">${p.apellidoNombre} · ${p.sector}</h3>
+    <div class="muted" style="margin-bottom:14px;">HS de ${periodo.nombre} · ${fmtFecha(periodo.fechaInicio)} al ${fmtFecha(periodo.fechaFin)}</div>
+    <div class="row-flex" style="margin-bottom:14px;">
+      <div class="stat-box"><div class="l">100%</div><div class="v">${tot.h100}</div></div>
+      <div class="stat-box"><div class="l">200%</div><div class="v">${tot.h200}</div></div>
+      <div class="stat-box"><div class="l">Nocturnas</div><div class="v">${tot.hnoc}</div></div>
+      <div class="stat-box"><div class="l">Total</div><div class="v" style="color:var(--green);">${tot.total}</div></div>
+    </div>
+    <table>
+      <thead><tr><th>Fecha</th><th>Tipo</th><th>Horas</th><th>Obs.</th></tr></thead>
+      <tbody>${filas}</tbody>
+    </table>
+  `;
+  document.getElementById("modal-detalle").classList.remove("hidden");
+}
+
+function cerrarModal(){ document.getElementById("modal-detalle").classList.add("hidden"); }
+
+function imprimirDetalle(){
+  const area = document.getElementById("print-area");
+  area.innerHTML = document.getElementById("modal-detalle-contenido").innerHTML;
+  window.print();
+}
+
+function generarPDFDetalle(){
+  if (!detalleActual) return;
+  const { p, tot, periodo, c } = detalleActual;
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+
+  doc.setFontSize(10);
+  doc.text("Fábrica de Alimentos Balanceados", 14, 16);
+  doc.setFontSize(14);
+  doc.text(p.apellidoNombre + " · " + p.sector, 14, 26);
+  doc.setFontSize(10);
+  doc.text("HS de " + periodo.nombre + " · " + fmtFecha(periodo.fechaInicio) + " al " + fmtFecha(periodo.fechaFin), 14, 33);
+
+  doc.setFontSize(11);
+  doc.text("100%: " + tot.h100 + " hs      200%: " + tot.h200 + " hs      Nocturnas: " + tot.hnoc + " hs", 14, 44);
+  doc.setFontSize(12);
+  doc.text("Total a liquidar: " + tot.total + " hs", 14, 52);
+
+  let y = 64;
+  doc.setFontSize(10);
+  doc.text("Fecha", 14, y);
+  doc.text("Tipo", 70, y);
+  doc.text("Horas", 110, y);
+  doc.text("Observación", 140, y);
+  y += 4;
+  doc.line(14, y, 196, y);
+  y += 6;
+
+  const items = Object.values(c.items || {}).sort((a,b) => (a.fecha||"").localeCompare(b.fecha||""));
+  items.forEach(it => {
+    const fechaTxt = it.tipo === "nocturnas" && it.fechaHasta ?
+      fmtFecha(it.fecha) + " al " + fmtFecha(it.fechaHasta) : fmtFecha(it.fecha);
+    doc.text(fechaTxt, 14, y);
+    doc.text(labelTipo(it.tipo), 70, y);
+    doc.text(String(it.horas) + " hs", 110, y);
+    doc.text((it.obs || "").substring(0,40), 140, y);
+    y += 7;
+    if (y > 280) { doc.addPage(); y = 20; }
+  });
+
+  const nombreArchivo = ("HS_" + p.apellidoNombre + "_" + periodo.nombre).replace(/\s+/g,"_") + ".pdf";
+  doc.save(nombreArchivo);
+}
+
+/* =========================================================
+   PENDIENTES (aprobar / editar / rechazar)
+   ========================================================= */
+function renderPendientes(){
+  const cont = document.getElementById("pendientes-contenido");
+  let html = "";
+  let count = 0;
+
+  Object.entries(CARGAS).forEach(([periodoId, personas]) => {
+    Object.entries(personas).forEach(([personalId, c]) => {
+      if (c.estado !== "enviado") return;
+      count++;
+      const p = PERSONAL[personalId];
+      if (!p) return;
+      const periodo = PERIODOS[periodoId];
+      const tot = calcularTotales(c.items);
+      const items = Object.entries(c.items||{}).sort((a,b)=>(a[1].fecha||"").localeCompare(b[1].fecha||""));
+      let filas = "";
+      items.forEach(([iid,it]) => {
+        const fechaTxt = it.tipo === "nocturnas" && it.fechaHasta ?
+          fmtFecha(it.fecha) + " al " + fmtFecha(it.fechaHasta) : fmtFecha(it.fecha);
+        filas += `<tr><td>${fechaTxt}</td><td>${labelTipo(it.tipo)}</td><td>${it.horas} hs</td></tr>`;
+      });
+      html += `<div class="card">
+        <div class="row-flex" style="justify-content:space-between; align-items:center;">
+          <h3 style="margin:0;">${p.apellidoNombre} <span class="muted">· HS de ${periodo.nombre}</span></h3>
+          <span class="pill warn">Total: ${tot.total} hs</span>
+        </div>
+        <table style="margin:10px 0;"><tbody>${filas}</tbody></table>
+        <div class="row-flex">
+          <button onclick="abrirDetalle('${periodoId}','${personalId}')">Ver / editar detalle</button>
+          <button class="success" onclick="aprobarCarga('${periodoId}','${personalId}')">Aprobar</button>
+          <button class="danger" onclick="rechazarCarga('${periodoId}','${personalId}')">Rechazar</button>
+        </div>
+      </div>`;
+    });
+  });
+
+  cont.innerHTML = count ? html : '<p class="muted">No hay envíos pendientes de aprobación.</p>';
+}
+
+function aprobarCarga(periodoId, personalId){
+  db.ref(`${ROOT}/cargas/${periodoId}/${personalId}`).update({ estado: "aprobado", aprobadoEn: Date.now() });
+}
+function rechazarCarga(periodoId, personalId){
+  if (!confirm("¿Rechazar esta carga? El empleado va a poder volver a editarla y reenviarla.")) return;
+  db.ref(`${ROOT}/cargas/${periodoId}/${personalId}`).update({ estado: "borrador" });
+}
+
+/* =========================================================
+   CONFIGURACIÓN — Períodos
+   ========================================================= */
+function renderPeriodoActualInfo(){
+  const info = document.getElementById("periodo-actual-info");
+  const p = PERIODOS[PERIODO_ACTIVO_ID];
+  const btn = document.getElementById("btn-cerrar-periodo");
+  if (p) {
+    info.innerHTML = `Activo: <b>HS de ${p.nombre}</b> (${fmtFecha(p.fechaInicio)} al ${fmtFecha(p.fechaFin)})`;
+    btn.disabled = false;
+  } else {
+    info.textContent = "No hay ningún período activo en este momento.";
+    btn.disabled = true;
+  }
+}
+
+function abrirNuevoPeriodo(){
+  const nombre = document.getElementById("nuevo-periodo-nombre").value.trim();
+  const inicio = document.getElementById("nuevo-periodo-inicio").value;
+  const fin = document.getElementById("nuevo-periodo-fin").value;
+  if (!nombre || !inicio || !fin) { alert("Completá nombre, fecha de inicio y fecha de fin."); return; }
+
+  const id = "hs_" + inicio.replace(/-/g,"");
+  db.ref(`${ROOT}/periodos/${id}`).set({ nombre, fechaInicio: inicio, fechaFin: fin, cerrado: false })
+    .then(() => db.ref(`${ROOT}/config/periodoActivoId`).set(id))
+    .then(() => {
+      document.getElementById("nuevo-periodo-nombre").value = "";
+      document.getElementById("nuevo-periodo-inicio").value = "";
+      document.getElementById("nuevo-periodo-fin").value = "";
+    });
+}
+
+function cerrarPeriodoActivo(){
+  if (!PERIODO_ACTIVO_ID) return;
+  if (!confirm("¿Cerrar el período activo? Los empleados ya no van a poder cargar en él.")) return;
+  db.ref(`${ROOT}/periodos/${PERIODO_ACTIVO_ID}/cerrado`).set(true)
+    .then(() => db.ref(`${ROOT}/config/periodoActivoId`).set(null));
+}
+
+/* =========================================================
+   CONFIGURACIÓN — Personal
+   ========================================================= */
+function agregarOperario(){
+  const nombre = document.getElementById("nuevo-op-nombre").value.trim();
+  const sector = document.getElementById("nuevo-op-sector").value;
+  const codigo = document.getElementById("nuevo-op-codigo").value.trim();
+  if (!nombre || !codigo) { alert("Completá apellido y código."); return; }
+  db.ref(`${ROOT}/personal`).push({ apellidoNombre: nombre, sector, codigo }).then(() => {
+    document.getElementById("nuevo-op-nombre").value = "";
+    document.getElementById("nuevo-op-codigo").value = "";
+  });
+}
+
+function eliminarOperario(id){
+  const p = PERSONAL[id];
+  if (!confirm(`¿Eliminar a ${p.apellidoNombre} de la lista de personal?`)) return;
+  db.ref(`${ROOT}/personal/${id}`).remove();
+}
+
+function renderListaPersonal(){
+  const cont = document.getElementById("lista-personal");
+  if (!cont) return;
+  let html = '<table><thead><tr><th>Apellido</th><th>Sector</th><th>Código</th><th></th></tr></thead><tbody>';
+  Object.entries(PERSONAL).sort((a,b)=>a[1].apellidoNombre.localeCompare(b[1].apellidoNombre)).forEach(([id,p]) => {
+    html += `<tr><td><span class="sector-dot ${SECTOR_DOT[p.sector]||''}"></span>${p.apellidoNombre}</td><td>${p.sector}</td><td>${p.codigo}</td>
+      <td style="text-align:right;"><button class="danger" onclick="eliminarOperario('${id}')">Eliminar</button></td></tr>`;
+  });
+  html += '</tbody></table>';
+  cont.innerHTML = html;
+}
+
+/* =========================================================
+   ESTADISTICAS
+   ========================================================= */
+let modoCmp = "sectores";
+let personasSel = new Set();
+let periodosSel = new Set();
+let mostrarTodasPersonas = true;
+let chartCmp = null;
+
+function setModoCmp(modo){
+  modoCmp = modo;
+  ["sectores","personas","periodos"].forEach(m => document.getElementById("cmp-btn-"+m).classList.toggle("active", m===modo));
+  document.getElementById("cmp-panel-personas").classList.toggle("hidden", modo!=="personas");
+  document.getElementById("cmp-panel-periodos").classList.toggle("hidden", modo!=="periodos");
+  renderStats();
+}
+
+function setPersonasModo(todos){
+  mostrarTodasPersonas = todos;
+  document.getElementById("cmp-btn-todos").classList.toggle("active", todos);
+  document.getElementById("cmp-btn-elegir").classList.toggle("active", !todos);
+  document.getElementById("cmp-lista-personas").classList.toggle("hidden", todos);
+  renderStats();
+}
+
+function renderStats(){
+  // listas de chips (solo la primera vez o si cambió el personal/periodos)
+  const contP = document.getElementById("cmp-lista-personas");
+  if (contP.children.length === 0) {
+    Object.entries(PERSONAL).filter(([id,p])=>p.sector!=="Administrador").forEach(([id,p]) => {
+      const chip = document.createElement("span");
+      chip.className = "chip" + (personasSel.has(id) ? " selected" : "");
+      chip.textContent = p.apellidoNombre;
+      chip.onclick = () => { chip.classList.toggle("selected"); personasSel.has(id)?personasSel.delete(id):personasSel.add(id); renderStats(); };
+      contP.appendChild(chip);
+    });
+  }
+  const contPer = document.getElementById("cmp-lista-periodos");
+  if (contPer.children.length === 0) {
+    Object.entries(PERIODOS).forEach(([id,p]) => {
+      const chip = document.createElement("span");
+      chip.className = "chip" + (periodosSel.has(id) ? " selected" : "");
+      chip.textContent = "HS de " + p.nombre;
+      chip.onclick = () => { chip.classList.toggle("selected"); periodosSel.has(id)?periodosSel.delete(id):periodosSel.add(id); renderStats(); };
+      contPer.appendChild(chip);
+    });
+  }
+
+  const periodosActivos = periodosSel.size ? [...periodosSel] : Object.keys(PERIODOS);
+  let labels = [], datasets = [];
+  let granTotal = {h100:0,h200:0,hnoc:0,total:0};
+
+  if (modoCmp === "sectores") {
+    labels = periodosActivos.map(id => "HS de " + (PERIODOS[id]?.nombre || "?"));
+    const porSector = {};
+    SECTORES.forEach(s => porSector[s] = periodosActivos.map(()=>0));
+    periodosActivos.forEach((pid, idx) => {
+      Object.entries(CARGAS[pid] || {}).forEach(([personalId,c]) => {
+        if (c.estado !== "aprobado") return;
+        const p = PERSONAL[personalId]; if (!p) return;
+        const tot = calcularTotales(c.items);
+        porSector[p.sector][idx] += tot.total;
+        granTotal.h100 += tot.h100; granTotal.h200 += tot.h200; granTotal.hnoc += tot.hnoc; granTotal.total += tot.total;
+      });
+    });
+    const colores = ["#2a78d6","#eb6834","#1baf7a","#b79be8","#d9634f","#8fa5b3"];
+    datasets = SECTORES.map((s,i) => ({ label:s, data: porSector[s], backgroundColor: colores[i%colores.length] }));
+  }
+  else if (modoCmp === "personas") {
+    const activos = mostrarTodasPersonas
+      ? Object.keys(PERSONAL).filter(id => PERSONAL[id].sector !== "Administrador")
+      : [...personasSel];
+    labels = activos.map(id => PERSONAL[id]?.apellidoNombre || "?");
+    const data = activos.map(id => {
+      let sum = 0;
+      periodosActivos.forEach(pid => {
+        const c = (CARGAS[pid]||{})[id];
+        if (c && c.estado === "aprobado") {
+          const tot = calcularTotales(c.items);
+          sum += tot.total;
+          granTotal.h100 += tot.h100; granTotal.h200 += tot.h200; granTotal.hnoc += tot.hnoc; granTotal.total += tot.total;
+        }
+      });
+      return sum;
+    });
+    datasets = [{ label:"Total horas", data, backgroundColor:"#2a78d6" }];
+  }
+  else { // periodos
+    labels = periodosActivos.map(id => "HS de " + (PERIODOS[id]?.nombre || "?"));
+    const data = periodosActivos.map(pid => {
+      let sum = 0;
+      Object.values(CARGAS[pid] || {}).forEach(c => {
+        if (c.estado === "aprobado") {
+          const tot = calcularTotales(c.items);
+          sum += tot.total;
+          granTotal.h100 += tot.h100; granTotal.h200 += tot.h200; granTotal.hnoc += tot.hnoc; granTotal.total += tot.total;
+        }
+      });
+      return sum;
+    });
+    datasets = [{ label:"Total horas", data, backgroundColor:"#1baf7a" }];
+  }
+
+  document.getElementById("stat-cards").innerHTML = `
+    <div class="stat-box"><div class="l">100%</div><div class="v">${granTotal.h100}</div></div>
+    <div class="stat-box"><div class="l">200%</div><div class="v">${granTotal.h200}</div></div>
+    <div class="stat-box"><div class="l">Nocturnas</div><div class="v">${granTotal.hnoc}</div></div>
+    <div class="stat-box"><div class="l">Total general</div><div class="v" style="color:var(--green);">${granTotal.total}</div></div>
+  `;
+
+  if (chartCmp) chartCmp.destroy();
+  chartCmp = new Chart(document.getElementById("chartCmp"), {
+    type: "bar",
+    data: { labels, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: datasets.length > 1 } },
+      scales: {
+        x: { ticks:{color:"#8fa5b3"}, grid:{display:false} },
+        y: { ticks:{color:"#8fa5b3"}, grid:{color:"#2b3b48"}, beginAtZero:true }
+      }
+    }
+  });
+}
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+
+</body>
+</html>
