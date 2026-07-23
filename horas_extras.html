@@ -367,6 +367,7 @@
       <button onclick="cerrarModal()">Cerrar</button>
       <button onclick="imprimirDetalle()">Imprimir</button>
       <button class="primary" onclick="generarPDFDetalle()">Generar PDF</button>
+      <button id="btn-guardar-detalle" class="success hidden" onclick="guardarDetalleEditado()">Guardar cambios</button>
     </div>
   </div>
 </div>
@@ -836,8 +837,10 @@ function renderListado(){
    DETALLE (modal) + IMPRESION + PDF
    ========================================================= */
 let detalleActual = null;
+let detalleEditable = false;
 
-function abrirDetalle(periodoId, personalId){
+function abrirDetalle(periodoId, personalId, editable){
+  editable = !!editable;
   const p = PERSONAL[personalId];
   const c = (CARGAS[periodoId] || {})[personalId];
   if (!c) return;
@@ -845,14 +848,39 @@ function abrirDetalle(periodoId, personalId){
   const periodo = PERIODOS[periodoId];
 
   detalleActual = { periodoId, personalId, p, c, tot, periodo };
+  detalleEditable = editable;
 
-  const items = Object.values(c.items || {}).sort((a,b) => (a.fecha||"").localeCompare(b.fecha||""));
+  const items = Object.entries(c.items || {}).sort((a,b) => (a[1].fecha||"").localeCompare(b[1].fecha||""));
   let filas = "";
-  items.forEach(it => {
-    const fechaTxt = it.tipo === "nocturnas" && it.fechaHasta ?
-      fmtFecha(it.fecha) + " al " + fmtFecha(it.fechaHasta) : fmtFecha(it.fecha);
-    filas += `<tr><td>${fechaTxt}</td><td>${labelTipo(it.tipo)}</td><td>${it.horas} hs</td><td class="muted">${it.obs||''}</td></tr>`;
-  });
+
+  if (!editable) {
+    items.forEach(([iid,it]) => {
+      const fechaTxt = it.tipo === "nocturnas" && it.fechaHasta ?
+        fmtFecha(it.fecha) + " al " + fmtFecha(it.fechaHasta) : fmtFecha(it.fecha);
+      filas += `<tr><td>${fechaTxt}</td><td>${labelTipo(it.tipo)}</td><td>${it.horas} hs</td><td class="muted">${it.obs||''}</td></tr>`;
+    });
+  } else {
+    items.forEach(([iid,it]) => {
+      const esNoc = it.tipo === "nocturnas";
+      filas += `<tr data-item-id="${iid}" data-tipo="${it.tipo}">
+        <td>
+          ${esNoc
+            ? `<input type="date" class="ed-fecha" value="${it.fecha||''}" style="margin-bottom:4px;"><input type="date" class="ed-fecha-hasta" value="${it.fechaHasta||''}">`
+            : `<input type="date" class="ed-fecha" value="${it.fecha||''}">`}
+        </td>
+        <td>
+          <select class="ed-tipo" onchange="cambiarTipoEdicion(this)">
+            <option value="100" ${it.tipo==="100"?"selected":""}>100%</option>
+            <option value="200" ${it.tipo==="200"?"selected":""}>200%</option>
+            <option value="nocturnas" ${it.tipo==="nocturnas"?"selected":""}>Nocturnas</option>
+          </select>
+        </td>
+        <td><input type="number" class="ed-horas" value="${it.horas}" style="width:70px;" ${esNoc?'disabled':''}></td>
+        <td><input type="text" class="ed-obs" maxlength="60" value="${it.obs||''}" style="width:120px;"></td>
+        <td><button class="danger" onclick="this.closest('tr').remove()">✕</button></td>
+      </tr>`;
+    });
+  }
 
   document.getElementById("modal-detalle-contenido").innerHTML = `
     <div class="muted" style="text-transform:uppercase; font-size:11px;">Fábrica de Alimentos Balanceados</div>
@@ -864,15 +892,61 @@ function abrirDetalle(periodoId, personalId){
       <div class="stat-box"><div class="l">Nocturnas</div><div class="v">${tot.hnoc}</div></div>
       <div class="stat-box"><div class="l">Total</div><div class="v" style="color:var(--green);">${tot.total}</div></div>
     </div>
-    <table>
-      <thead><tr><th>Fecha</th><th>Tipo</th><th>Horas</th><th>Obs.</th></tr></thead>
+    <table id="tabla-detalle">
+      <thead><tr><th>Fecha</th><th>Tipo</th><th>Horas</th><th>Obs.</th>${editable ? "<th></th>" : ""}</tr></thead>
       <tbody>${filas}</tbody>
     </table>
+    ${editable ? '<div class="muted" style="margin-top:8px;">Corregí lo que haga falta y tocá "Guardar cambios" abajo.</div>' : ''}
   `;
   document.getElementById("modal-detalle").classList.remove("hidden");
+
+  // Mostrar/ocultar el botón de guardar según el modo
+  document.getElementById("btn-guardar-detalle").classList.toggle("hidden", !editable);
 }
 
 function cerrarModal(){ document.getElementById("modal-detalle").classList.add("hidden"); }
+
+function cambiarTipoEdicion(select){
+  const tr = select.closest("tr");
+  const esNoc = select.value === "nocturnas";
+  tr.dataset.tipo = select.value;
+  const tdFecha = tr.querySelector("td:first-child");
+  const fechaActual = tr.querySelector(".ed-fecha")?.value || "";
+  if (esNoc) {
+    tdFecha.innerHTML = `<input type="date" class="ed-fecha" value="${fechaActual}" style="margin-bottom:4px;"><input type="date" class="ed-fecha-hasta" value="">`;
+  } else {
+    tdFecha.innerHTML = `<input type="date" class="ed-fecha" value="${fechaActual}">`;
+  }
+  const inputHoras = tr.querySelector(".ed-horas");
+  inputHoras.disabled = esNoc;
+}
+
+function guardarDetalleEditado(){
+  if (!detalleActual) return;
+  const filas = document.querySelectorAll("#tabla-detalle tbody tr");
+  const items = {};
+  filas.forEach(tr => {
+    const iid = tr.dataset.itemId;
+    const tipo = tr.querySelector(".ed-tipo").value;
+    const obs = tr.querySelector(".ed-obs").value.trim();
+    if (tipo === "nocturnas") {
+      const desde = tr.querySelector(".ed-fecha").value;
+      const hasta = tr.querySelector(".ed-fecha-hasta").value;
+      if (!desde || !hasta) return;
+      items[iid] = { tipo, fecha: desde, fechaHasta: hasta, horas: contarNoches(desde, hasta), obs };
+    } else {
+      const fecha = tr.querySelector(".ed-fecha").value;
+      const horas = parseFloat(tr.querySelector(".ed-horas").value);
+      if (!fecha || !horas) return;
+      items[iid] = { tipo, fecha, horas, obs };
+    }
+  });
+
+  const { periodoId, personalId } = detalleActual;
+  db.ref(`${ROOT}/cargas/${periodoId}/${personalId}/items`).set(items).then(() => {
+    cerrarModal();
+  });
+}
 
 function imprimirDetalle(){
   const area = document.getElementById("print-area");
@@ -971,7 +1045,7 @@ function renderPendientes(){
       </div>
       <table style="margin:10px 0;"><tbody>${filas}</tbody></table>
       <div class="row-flex">
-        <button onclick="abrirDetalle('${periodoId}','${personalId}')">Ver / editar detalle</button>
+        <button onclick="abrirDetalle('${periodoId}','${personalId}', true)">Ver / editar detalle</button>
         <button class="success" onclick="aprobarCarga('${periodoId}','${personalId}')">Aprobar</button>
         <button class="danger" onclick="rechazarCarga('${periodoId}','${personalId}')">Rechazar</button>
       </div>
