@@ -115,10 +115,12 @@
 
   #print-area{ display:none; }
   @media print{
+    html, body{ background:#ffffff !important; }
     body *{ visibility: hidden; }
     #print-area, #print-area *{ visibility: visible; }
     #print-area{ display:block; position:absolute; top:0; left:0; width:100%; padding: 20px; color:#000; background:#fff; }
     #print-area table td, #print-area table th{ color:#000; border-color:#999; }
+    #print-area img{ max-width:100%; }
   }
 
   .stat-grid{ display:grid; grid-template-columns: repeat(4,1fr); gap:10px; margin-bottom: 16px; }
@@ -278,12 +280,13 @@
         </div>
         <div id="cmp-lista-personas"></div>
       </div>
-      <div id="cmp-panel-periodos" class="hidden card">
-        <div class="muted" style="margin-bottom:8px;">Elegí uno o varios períodos</div>
+      <div id="cmp-panel-periodos" class="card">
+        <div class="muted" style="margin-bottom:8px;">Elegí uno o varios períodos (si no elegís ninguno, se toman todos)</div>
         <div id="cmp-lista-periodos"></div>
       </div>
       <div class="row-flex" style="justify-content:flex-end; margin-bottom:10px;">
-        <button style="flex:none;" onclick="window.print()">Imprimir</button>
+        <button style="flex:none;" onclick="imprimirStats()">Imprimir</button>
+        <button style="flex:none;" class="primary" onclick="compartirStats()">Compartir</button>
       </div>
       <div class="stat-grid" id="stat-cards"></div>
       <div style="position:relative; width:100%; height:280px;">
@@ -367,6 +370,7 @@
       <button onclick="cerrarModal()">Cerrar</button>
       <button onclick="imprimirDetalle()">Imprimir</button>
       <button class="primary" onclick="generarPDFDetalle()">Generar PDF</button>
+      <button class="primary" onclick="compartirDetallePDF()">Compartir</button>
       <button id="btn-guardar-detalle" class="success hidden" onclick="guardarDetalleEditado()">Guardar cambios</button>
     </div>
   </div>
@@ -406,6 +410,8 @@ let CARGAS = {};        // periodoId -> personalId -> {estado, items:{}}
 let empleadoActualId = null;
 let filaCount = 0;
 let ultimaCargaEnviada = null;
+let listadoSeleccionados = new Set();
+let listadoPeriodoAnterior = null;
 
 /* =========================================================
    CARGA INICIAL DESDE FIREBASE
@@ -805,6 +811,11 @@ function renderListado(){
   const cont = document.getElementById("listado-contenido");
   if (!periodoId) { cont.innerHTML = '<p class="muted">No hay períodos cargados todavía.</p>'; return; }
 
+  if (periodoId !== listadoPeriodoAnterior) {
+    listadoSeleccionados.clear(); // al cambiar de período, arrancamos la selección de cero
+    listadoPeriodoAnterior = periodoId;
+  }
+
   const cargasPeriodo = CARGAS[periodoId] || {};
   const porSector = {};
   SECTORES.forEach(s => porSector[s] = []);
@@ -818,7 +829,22 @@ function renderListado(){
     porSector[p.sector].push({ id, nombre: p.apellidoNombre, tot, estado: c.estado });
   });
 
-  let html = "";
+  const totalOperarios = Object.values(porSector).reduce((a,arr)=>a+arr.length,0);
+
+  let html = `<div class="card">
+    <div class="row-flex" style="justify-content:space-between; align-items:center;">
+      <label style="display:flex; align-items:center; gap:8px; font-size:13px;">
+        <input type="checkbox" style="width:auto;" ${listadoSeleccionados.size === totalOperarios && totalOperarios>0 ? "checked" : ""}
+          onchange="toggleSeleccionarTodosListado(this.checked, '${periodoId}')">
+        Seleccionar todos
+      </label>
+      <div class="row-flex" style="flex:none;">
+        <span class="muted" style="align-self:center;">${listadoSeleccionados.size} seleccionado(s)</span>
+        <button class="primary" style="flex:none;" ${listadoSeleccionados.size===0?"disabled":""} onclick="compartirSeleccionadosListado('${periodoId}')">Compartir seleccionados</button>
+      </div>
+    </div>
+  </div>`;
+
   SECTORES.forEach(sector => {
     const filas = porSector[sector];
     if (!filas || filas.length === 0) return;
@@ -827,7 +853,9 @@ function renderListado(){
     filas.sort((a,b)=>a.nombre.localeCompare(b.nombre)).forEach(f => {
       sub.h100 += f.tot.h100; sub.h200 += f.tot.h200; sub.hnoc += f.tot.hnoc; sub.total += f.tot.total;
       const estadoPill = f.estado === "aprobado" ? '<span class="pill ok">Aprobado</span>' : '<span class="pill warn">Pendiente</span>';
+      const marcado = listadoSeleccionados.has(f.id) ? "checked" : "";
       filasHtml += `<tr>
+        <td><input type="checkbox" style="width:auto;" ${marcado} onchange="toggleSeleccionListado('${f.id}')"></td>
         <td>${f.nombre}</td>
         <td>${f.tot.h100||''}</td><td>${f.tot.h200||''}</td><td>${f.tot.hnoc||''}</td>
         <td><b>${f.tot.total}</b></td>
@@ -838,9 +866,9 @@ function renderListado(){
     html += `<div class="card">
       <h3><span class="sector-dot" style="${dotSector(sector)}"></span>${sector} · ${filas.length} operario(s) · ${sub.total} hs</h3>
       <table>
-        <thead><tr><th>Operario</th><th>100%</th><th>200%</th><th>Noct.</th><th>Total</th><th>Estado</th><th></th></tr></thead>
+        <thead><tr><th></th><th>Operario</th><th>100%</th><th>200%</th><th>Noct.</th><th>Total</th><th>Estado</th><th></th></tr></thead>
         <tbody>${filasHtml}</tbody>
-        <tfoot><tr><td>Subtotal</td><td>${sub.h100}</td><td>${sub.h200}</td><td>${sub.hnoc}</td><td>${sub.total}</td><td colspan="2"></td></tr></tfoot>
+        <tfoot><tr><td></td><td>Subtotal</td><td>${sub.h100}</td><td>${sub.h200}</td><td>${sub.hnoc}</td><td>${sub.total}</td><td colspan="2"></td></tr></tfoot>
       </table>
     </div>`;
   });
@@ -921,6 +949,35 @@ function abrirDetalle(periodoId, personalId, editable){
 
 function cerrarModal(){ document.getElementById("modal-detalle").classList.add("hidden"); }
 
+function imprimirStats(){
+  const area = document.getElementById("print-area");
+  const resumen = document.getElementById("stat-cards").innerHTML;
+  const chartImg = document.getElementById("chartCmp").toDataURL("image/png", 1.0);
+  area.innerHTML = `
+    <div style="font-size:11px; text-transform:uppercase; color:#666;">Fábrica de Alimentos Balanceados</div>
+    <h2 style="margin:4px 0 14px;">Estadísticas de Horas Extras</h2>
+    <div style="display:flex; gap:10px; margin-bottom:16px;">${resumen}</div>
+    <img src="${chartImg}">
+  `;
+  window.print();
+}
+
+function compartirStats(){
+  const canvas = document.getElementById("chartCmp");
+  canvas.toBlob(blob => {
+    const file = new File([blob], "estadisticas_horas_extras.png", { type: "image/png" });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      navigator.share({ files: [file], title: "Estadísticas de horas extras" }).catch(()=>{});
+    } else {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = "estadisticas_horas_extras.png";
+      a.click();
+      alert("Se descargó la imagen del gráfico. Adjuntala manualmente en WhatsApp o email.");
+    }
+  }, "image/png");
+}
+
 function cambiarTipoEdicion(select){
   const tr = select.closest("tr");
   const esNoc = select.value === "nocturnas";
@@ -969,11 +1026,14 @@ function imprimirDetalle(){
   window.print();
 }
 
-function generarPDFDetalle(){
-  if (!detalleActual) return;
-  const { p, tot, periodo, c } = detalleActual;
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF();
+function agregarPaginaPDF(doc, periodoId, personalId, esPrimera){
+  const p = PERSONAL[personalId];
+  const c = (CARGAS[periodoId] || {})[personalId];
+  if (!p || !c) return;
+  const tot = calcularTotales(c.items);
+  const periodo = PERIODOS[periodoId];
+
+  if (!esPrimera) doc.addPage();
 
   doc.setFontSize(10);
   doc.text("Fábrica de Alimentos Balanceados", 14, 16);
@@ -1008,9 +1068,77 @@ function generarPDFDetalle(){
     y += 7;
     if (y > 280) { doc.addPage(); y = 20; }
   });
+}
 
+function construirPDFDetalle(){
+  const { periodoId, personalId, periodo, p } = detalleActual;
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  agregarPaginaPDF(doc, periodoId, personalId, true);
   const nombreArchivo = ("HS_" + p.apellidoNombre + "_" + periodo.nombre).replace(/\s+/g,"_") + ".pdf";
+  return { doc, nombreArchivo };
+}
+
+/* ---- Selección múltiple en el Listado ---- */
+function toggleSeleccionListado(id){
+  if (listadoSeleccionados.has(id)) listadoSeleccionados.delete(id);
+  else listadoSeleccionados.add(id);
+  renderListado();
+}
+
+function toggleSeleccionarTodosListado(marcar, periodoId){
+  listadoSeleccionados.clear();
+  if (marcar) {
+    const cargasPeriodo = CARGAS[periodoId] || {};
+    Object.entries(PERSONAL).forEach(([id,p]) => {
+      if (p.sector === "Administrador") return;
+      const c = cargasPeriodo[id];
+      if (c && (c.estado === "aprobado" || c.estado === "enviado")) listadoSeleccionados.add(id);
+    });
+  }
+  renderListado();
+}
+
+function compartirSeleccionadosListado(periodoId){
+  if (listadoSeleccionados.size === 0) return;
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  let primera = true;
+  [...listadoSeleccionados].forEach(personalId => {
+    agregarPaginaPDF(doc, periodoId, personalId, primera);
+    primera = false;
+  });
+  const periodo = PERIODOS[periodoId];
+  const nombreArchivo = ("HS_" + (periodo ? periodo.nombre : periodoId) + "_seleccion").replace(/\s+/g,"_") + ".pdf";
+  const blob = doc.output("blob");
+  const file = new File([blob], nombreArchivo, { type: "application/pdf" });
+
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    navigator.share({ files: [file], title: nombreArchivo }).catch(()=>{});
+  } else {
+    doc.save(nombreArchivo);
+    alert("Se descargó el PDF combinado (" + listadoSeleccionados.size + " operario(s)). Adjuntalo manualmente en WhatsApp o email.");
+  }
+}
+
+function generarPDFDetalle(){
+  if (!detalleActual) return;
+  const { doc, nombreArchivo } = construirPDFDetalle();
   doc.save(nombreArchivo);
+}
+
+function compartirDetallePDF(){
+  if (!detalleActual) return;
+  const { doc, nombreArchivo } = construirPDFDetalle();
+  const blob = doc.output("blob");
+  const file = new File([blob], nombreArchivo, { type: "application/pdf" });
+
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    navigator.share({ files: [file], title: nombreArchivo }).catch(()=>{});
+  } else {
+    doc.save(nombreArchivo);
+    alert("Se descargó el PDF. Adjuntalo manualmente en WhatsApp o email para enviarlo a Finanzas.");
+  }
 }
 
 /* =========================================================
@@ -1195,7 +1323,6 @@ function setModoCmp(modo){
   modoCmp = modo;
   ["sectores","personas","periodos"].forEach(m => document.getElementById("cmp-btn-"+m).classList.toggle("active", m===modo));
   document.getElementById("cmp-panel-personas").classList.toggle("hidden", modo!=="personas");
-  document.getElementById("cmp-panel-periodos").classList.toggle("hidden", modo!=="periodos");
   renderStats();
 }
 
@@ -1264,6 +1391,23 @@ function renderStats(){
     });
     const colores = ["#2a78d6","#eb6834","#1baf7a","#b79be8","#d9634f","#8fa5b3"];
     datasets = SECTORES.map((s,i) => ({ label:s, data: porSector[s], backgroundColor: colores[i%colores.length] }));
+  }
+  else if (modoCmp === "personas" && !mostrarTodasPersonas && personasSel.size === 1) {
+    // Una sola persona seleccionada: mostramos su evolución período por período
+    const id = [...personasSel][0];
+    const persona = PERSONAL[id];
+    const periodosOrdenados = periodosActivos.slice().sort((a,b) => (PERIODOS[a]?.fechaInicio||"").localeCompare(PERIODOS[b]?.fechaInicio||""));
+    labels = periodosOrdenados.map(pid => "HS de " + (PERIODOS[pid]?.nombre || "?"));
+    const data = periodosOrdenados.map(pid => {
+      const c = (CARGAS[pid]||{})[id];
+      if (c && c.estado === "aprobado") {
+        const tot = calcularTotales(c.items);
+        granTotal.h100 += tot.h100; granTotal.h200 += tot.h200; granTotal.hnoc += tot.hnoc; granTotal.total += tot.total;
+        return tot.total;
+      }
+      return 0;
+    });
+    datasets = [{ label: persona ? persona.apellidoNombre : "Total", data, backgroundColor: "#2a78d6" }];
   }
   else if (modoCmp === "personas") {
     const ordenPorSector = (ids) => ids.slice().sort((a,b) => {
