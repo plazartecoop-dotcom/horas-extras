@@ -119,6 +119,8 @@
     body *{ visibility: hidden; }
     #print-area, #print-area *{ visibility: visible; }
     #print-area{ display:block; position:absolute; top:0; left:0; width:100%; padding: 20px; color:#000; background:#fff; }
+    #print-area, #print-area *{ color:#000 !important; background:transparent !important; border-color:#999 !important; }
+    #print-area .stat-box{ border:1px solid #999 !important; padding:8px !important; }
     #print-area table td, #print-area table th{ color:#000; border-color:#999; }
     #print-area img{ max-width:100%; }
   }
@@ -840,7 +842,8 @@ function renderListado(){
       </label>
       <div class="row-flex" style="flex:none;">
         <span class="muted" style="align-self:center;">${listadoSeleccionados.size} seleccionado(s)</span>
-        <button class="primary" style="flex:none;" ${listadoSeleccionados.size===0?"disabled":""} onclick="compartirSeleccionadosListado('${periodoId}')">Compartir seleccionados</button>
+        <button class="primary" style="flex:none;" ${listadoSeleccionados.size===0?"disabled":""} onclick="compartirSeleccionadosListado('${periodoId}')">Compartir seleccionados (PDF)</button>
+        <button style="flex:none;" ${listadoSeleccionados.size===0?"disabled":""} onclick="generarDocumentoFinanzas('${periodoId}')">Documento para Finanzas</button>
       </div>
     </div>
   </div>`;
@@ -1097,6 +1100,125 @@ function toggleSeleccionarTodosListado(marcar, periodoId){
     });
   }
   renderListado();
+}
+
+function generarDocumentoFinanzas(periodoId){
+  if (listadoSeleccionados.size === 0) return;
+  const periodo = PERIODOS[periodoId];
+  const cargasPeriodo = CARGAS[periodoId] || {};
+
+  const porSector = {};
+  let totalGeneral = 0;
+  let cantOperarios = 0;
+
+  [...listadoSeleccionados].forEach(id => {
+    const p = PERSONAL[id];
+    const c = cargasPeriodo[id];
+    if (!p || !c) return;
+    const tot = calcularTotales(c.items);
+    totalGeneral += tot.total;
+    cantOperarios++;
+    porSector[p.sector] = porSector[p.sector] || [];
+    porSector[p.sector].push({ p, c, tot });
+  });
+
+  const iniciales = nombre => nombre.split(" ").slice(0,2).map(w=>w[0]).join("").toUpperCase();
+
+  let sectoresHtml = "";
+  SECTORES.forEach(sector => {
+    const lista = porSector[sector];
+    if (!lista || lista.length === 0) return;
+    const color = colorSector(sector);
+
+    let tarjetas = "";
+    lista.sort((a,b) => a.p.apellidoNombre.localeCompare(b.p.apellidoNombre)).forEach((entry, idx) => {
+      const { p, c, tot } = entry;
+      const items = Object.values(c.items || {}).sort((a,b) => (a.fecha||"").localeCompare(b.fecha||""));
+      let filasDetalle = "";
+      items.forEach(it => {
+        const fechaTxt = it.tipo === "nocturnas" && it.fechaHasta ?
+          fmtFecha(it.fecha) + " al " + fmtFecha(it.fechaHasta) : fmtFecha(it.fecha);
+        filasDetalle += `<div style="margin-bottom:8px;">
+          <div style="display:flex; justify-content:space-between; font-size:13px;">
+            <span style="color:#7a7a75;">${fechaTxt}</span><span>${labelTipo(it.tipo)} · ${it.horas} hs</span>
+          </div>
+          ${it.obs ? `<div style="font-size:12px; color:#9a9a95; margin-top:2px;">${it.obs}</div>` : ""}
+        </div>`;
+      });
+      const opId = "op" + idx + "_" + sector.replace(/\s+/g,"");
+      tarjetas += `<div style="border:2px solid ${color}; border-radius:12px; margin-bottom:12px;">
+        <div onclick="var d=document.getElementById('${opId}'); var i=document.getElementById('ic_${opId}'); var v=d.style.display==='none'; d.style.display=v?'block':'none'; i.style.transform=v?'rotate(180deg)':'rotate(0deg)';"
+             style="display:flex; justify-content:space-between; align-items:center; padding:12px 14px; cursor:pointer;">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <div style="width:28px; height:28px; border-radius:50%; background:color-mix(in srgb, ${color} 15%, white); display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:600; color:${color};">${iniciales(p.apellidoNombre)}</div>
+            <span style="font-size:14px;">${p.apellidoNombre}</span>
+          </div>
+          <span style="display:flex; align-items:center; gap:10px; font-size:13px;">
+            <span style="color:#7a7a75;">${tot.total} hs</span>
+            <span id="ic_${opId}" style="display:inline-block; color:#aaa; transition:transform .15s;">&#9660;</span>
+          </span>
+        </div>
+        <div id="${opId}" style="display:none; padding:0 14px 14px 52px;">
+          <div style="border-top:1px solid #eee; padding-top:10px;">${filasDetalle}</div>
+        </div>
+      </div>`;
+    });
+
+    sectoresHtml += `
+      <span style="display:inline-block; border:2px solid ${color}; background:color-mix(in srgb, ${color} 10%, white); color:${color}; font-size:12px; font-weight:600; padding:5px 14px; border-radius:20px; margin:20px 0 12px;">${sector}</span>
+      <div>${tarjetas}</div>`;
+  });
+
+  const hoy = new Date().toLocaleDateString("es-AR");
+
+  const html = `<!DOCTYPE html>
+<html lang="es"><head><meta charset="UTF-8">
+<title>Horas Extras — HS de ${periodo.nombre}</title>
+<style>
+  body{ margin:0; background:#f4f3f0; font-family:-apple-system,Segoe UI,Arial,sans-serif; color:#1a1a1a; padding:24px 12px; }
+  .doc{ max-width:640px; margin:0 auto; background:#fff; border:1px solid #e5e5e0; border-radius:12px; overflow:hidden; }
+</style></head>
+<body>
+  <div class="doc">
+    <div style="padding:24px 24px 20px; border-bottom:1px solid #eee;">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <div style="width:36px; height:36px; border-radius:8px; background:#fcebeb; display:flex; align-items:center; justify-content:center; font-size:18px;">🏭</div>
+          <div>
+            <div style="font-size:11px; color:#c0392b; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Fábrica de Alimentos Balanceados</div>
+            <div style="font-weight:600; font-size:17px;">Horas Extras · HS de ${periodo.nombre}</div>
+          </div>
+        </div>
+        <span style="background:#e8f5ee; color:#1d7a4f; font-size:12px; padding:4px 10px; border-radius:20px; white-space:nowrap;">Cerrado ${hoy}</span>
+      </div>
+      <div style="display:flex; gap:20px; margin-top:14px; padding-top:14px; border-top:1px solid #eee;">
+        <div><div style="font-size:11px; color:#999;">Período</div><div style="font-size:13px; font-weight:600;">${fmtFecha(periodo.fechaInicio)} al ${fmtFecha(periodo.fechaFin)}</div></div>
+        <div><div style="font-size:11px; color:#999;">Operarios</div><div style="font-size:13px; font-weight:600;">${cantOperarios}</div></div>
+        <div><div style="font-size:11px; color:#999;">Total horas</div><div style="font-size:13px; font-weight:600; color:#185fa5;">${totalGeneral} hs</div></div>
+      </div>
+    </div>
+    <div style="padding:20px 24px;">
+      ${sectoresHtml}
+    </div>
+    <div style="padding:14px 24px; background:#faf9f7; font-size:11px; color:#999; text-align:center;">
+      Documento generado para liquidación · no se actualiza tras el cierre del período
+    </div>
+  </div>
+</body></html>`;
+
+  const nombreArchivo = ("HS_" + periodo.nombre + "_Finanzas").replace(/\s+/g,"_") + ".html";
+  const blob = new Blob([html], { type: "text/html" });
+  const file = new File([blob], nombreArchivo, { type: "text/html" });
+
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    navigator.share({ files: [file], title: nombreArchivo }).catch(()=>{});
+  } else {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = nombreArchivo;
+    a.click();
+    alert("Se descargó el documento. Adjuntalo manualmente en WhatsApp o email para enviarlo a Finanzas.");
+  }
 }
 
 function compartirSeleccionadosListado(periodoId){
